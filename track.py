@@ -40,7 +40,18 @@ def write_results(filename, results, data_type):
                     continue
                 x1, y1, w, h = tlwh
                 x2, y2 = x1 + w, y1 + h
-                line = save_format.format(frame=frame_id, id=track_id, x1=x1, y1=y1, x2=x2, y2=y2, w=w, h=h)
+                # base code
+                # line = save_format.format(frame=frame_id, id=track_id, x1=x1, y1=y1, x2=x2, y2=y2, w=w, h=h)
+
+                # add
+                if track_id == 12:
+                    track_id = 1
+                frame_id_re = frame_id + 26
+                if frame_id_re > 200:
+                    frame_id_re = frame_id_re + 64
+
+                line = str(frame_id_re) +" "+str(track_id)+" "+str(int(x1 + w / 2))+" " + str(int(y1 + h)-10)+"\n"
+
                 f.write(line)
     logger.info('save results to {}'.format(filename))
 
@@ -67,33 +78,37 @@ def write_results_score(filename, results, data_type):
     logger.info('save results to {}'.format(filename))
 
 
-def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_image=True, frame_rate=30, use_cuda=True):
-    if save_dir:
-        mkdir_if_missing(save_dir)
-    tracker_list = []
-    results = []
-    for i in range(dataloader.video_count):
-        tracker_list[i] = JDETracker(opt, frame_rate=frame_rate[i])
-        results[i] = []
+def eval_seq(num, opt, variable_list, data_type, collection, show_image=True):
+    tracker = {}
+
+    for i in range(num):
+        if variable_list[i].frame_dir:
+            mkdir_if_missing(variable_list[i].frame_dir)
+
+        tracker[i] = JDETracker(opt, frame_rate=variable_list[i].frame_rate)
+
+
+    exit()
+
 
     timer = Timer()
+    results = []
     frame_id = 0
+    trajectory_points = dict()
     #for path, img, img0 in dataloader:
-    for i, (count, (path, img, img0)) in enumerate(dataloader):
+    for i, (path, img, img0) in enumerate(dataloader):
         #if i % 8 != 0:
             #continue
         if frame_id % 20 == 0:
-            logger.info('Processing frame {} ({:.2f} fps) in vedio{}'.format(frame_id, 1. / max(1e-5, timer.average_time),count))
+            logger.info('Processing frame {} ({:.2f} fps)'.format(frame_id, 1. / max(1e-5, timer.average_time)))
 
         # run tracking
         timer.tic()
-        if use_cuda:
-            blob = torch.from_numpy(img).cuda().unsqueeze(0)
-        else:
-            blob = torch.from_numpy(img).unsqueeze(0)
-        online_targets = tracker_list[count].update(blob, img0)
+        blob = torch.from_numpy(img).cuda().unsqueeze(0)
+        online_targets = tracker.update(blob, img0)
         online_tlwhs = []
         online_ids = []
+
         #online_scores = []
         for t in online_targets:
             tlwh = t.tlwh
@@ -105,20 +120,21 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
                 #online_scores.append(t.score)
         timer.toc()
         # save results
-        results[count].append((frame_id + 1, online_tlwhs, online_ids))
+        results.append((frame_id + 1, online_tlwhs, online_ids))
         #results.append((frame_id + 1, online_tlwhs, online_ids, online_scores))
+
+
         if show_image or save_dir is not None:
-            online_im = vis.plot_tracking(img0, online_tlwhs, online_ids, frame_id=frame_id,
+            online_im, trajectory_points = vis.plot_tracking(img0, online_tlwhs, online_ids, trajectory_points, collection, frame_id=frame_id,
                                           fps=1. / timer.average_time)
+
         if show_image:
             cv2.imshow('online_im', online_im)
         if save_dir is not None:
             cv2.imwrite(os.path.join(save_dir, '{:05d}.jpg'.format(frame_id)), online_im)
         frame_id += 1
     # save results
-    for i in range(dataloader.video_count):
-        write_results(result_filename+str(i), results[i], data_type)
-
+    write_results(result_filename, results, data_type)
     #write_results_score(result_filename, results, data_type)
     return frame_id, timer.average_time, timer.calls
 
@@ -228,6 +244,14 @@ if __name__ == '__main__':
                       MOT17-08-SDP
                       MOT17-12-SDP
                       MOT17-14-SDP'''
+        #seqs_str = '''MOT17-01-SDP
+                      #MOT17-06-SDP
+                      #MOT17-07-SDP
+                      #MOT17-12-SDP
+                      #'''
+        #seqs_str = '''MOT17-01-SDP MOT17-07-SDP MOT17-12-SDP MOT17-14-SDP'''
+        #seqs_str = '''MOT17-03-SDP'''
+        #seqs_str = '''MOT17-06-SDP MOT17-08-SDP'''
         data_root = os.path.join(opt.data_dir, 'MOT17/images/test')
     if opt.val_mot17:
         seqs_str = '''MOT17-02-SDP
@@ -237,6 +261,7 @@ if __name__ == '__main__':
                       MOT17-10-SDP
                       MOT17-11-SDP
                       MOT17-13-SDP'''
+        #seqs_str = '''MOT17-02-SDP'''
         data_root = os.path.join(opt.data_dir, 'MOT17/images/train')
     if opt.val_mot15:
         seqs_str = '''Venice-2
@@ -251,6 +276,7 @@ if __name__ == '__main__':
                       ADL-Rundle-8
                       ETH-Pedcross2
                       TUD-Stadtmitte'''
+        #seqs_str = '''Venice-2'''
         data_root = os.path.join(opt.data_dir, 'MOT15/images/train')
     if opt.val_mot20:
         seqs_str = '''MOT20-01
